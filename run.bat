@@ -1,2 +1,0 @@
-python qecnn.py
-pause
