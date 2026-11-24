@@ -1,8 +1,8 @@
 import argparse
 import csv
 import random
-import time
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -15,16 +15,16 @@ import support
 
 ROOT = Path(__file__).resolve().parent
 WIDTH, HEIGHT = 480, 320
-PATCH_SIZE = 64
-PATCHES_PER_IMAGE = 32
+PATCH_SIZE = 128
+PATCHES_PER_IMAGE = 8
 CHANNELS = 64
 WINDOW_SIZE = 8
 HEADS = 4
 NUM_GROUPS = 2
 BLOCKS_PER_GROUP = 4
 SEED = 42
-LEARNING_RATE = 2e-4
-MIN_LEARNING_RATE = 1e-5
+LEARNING_RATE = 1e-4
+MIN_LEARNING_RATE = 1e-6
 WEIGHTS = ROOT / 'best_swinir.pth'
 FRAME_BYTES = WIDTH * HEIGHT * 3 // 2
 
@@ -230,7 +230,7 @@ def load_training_data():
         if i in val_indices:
             val.append((comp.astype(np.float32), raw.astype(np.float32)))
         else:
-            train.append((comp.astype(np.uint8), raw.astype(np.uint8)))
+            train.append((comp.astype(np.float32), raw.astype(np.float32)))
     print(f'Frames: train={len(train)}, validation={len(val)}', flush=True)
     return train, val
 
@@ -282,16 +282,35 @@ def evaluate(model, pairs, device, verbose=False):
     return np.asarray(rows)
 
 
-def train_model(epochs, batch_size, device):
+def train_model(epochs, batch_size, device, resume=False):
     set_seed()
     train, val = load_training_data()
     dataset = PatchDataset(train)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0,
                         generator=torch.Generator().manual_seed(SEED), pin_memory=device.type == 'cuda')
     model = EnhancerModel().to(device)
+    if resume:
+        model.load_state_dict(torch.load(WEIGHTS, map_location=device, weights_only=True))
+        print(f'Loaded {WEIGHTS.name}', flush=True)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=MIN_LEARNING_RATE)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=0.5,
+        patience=5,
+        threshold=0.001,
+        threshold_mode="abs",
+        min_lr=MIN_LEARNING_RATE
+    )
     best_psnr = -float('inf')
+    if resume:
+        rows = evaluate(model, val, device)
+        val_mse, val_base, val_psnr, gain = rows[:, 1:].mean(axis=0)
+        best_psnr = val_psnr
+        scheduler.step(val_psnr)
+        print(f'Before fine-tuning | Val MSE {val_mse:.6f} | Val PSNR {val_psnr:.3f} | Gain {gain:+.3f} dB', flush=True)
+
     print(f'Parameters: {sum(p.numel() for p in model.parameters()):,}', flush=True)
     print(f'Train: {len(dataset)} random patches per epoch | batch={batch_size} | validation: {len(val)} full images', flush=True)
     for epoch in range(1, epochs + 1):
@@ -321,7 +340,7 @@ def train_model(epochs, batch_size, device):
             torch.save(model.state_dict(), tmp)
             tmp.replace(WEIGHTS)
             print(f'  Saved {WEIGHTS.name}', flush=True)
-        scheduler.step()
+        scheduler.step(val_psnr)
     print(f'Best validation PSNR: {best_psnr:.3f} dB')
 
 
@@ -389,15 +408,16 @@ def test_model(device):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('mode', choices=['train', 'test'], nargs='?', default='train')
-    parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--batch-size', type=int, default=8)
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--batch-size', type=int, default=2)
+    parser.add_argument('--resume', action='store_true', help='Continue training from best_swinir.pth')
     parser.add_argument('--device', choices=['cpu', 'mps', 'cuda'], default=None)
     parser.add_argument('--prepare', action='store_true', help='Accepted for compatibility; YUV data are loaded directly')
     args = parser.parse_args()
     device = torch.device(args.device) if args.device else choose_device()
     print(f'Using device: {device}', flush=True)
     if args.mode == 'train':
-        train_model(args.epochs, args.batch_size, device)
+        train_model(args.epochs, args.batch_size, device, resume=args.resume)
     else:
         test_model(device)
 
