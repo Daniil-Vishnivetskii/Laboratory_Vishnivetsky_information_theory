@@ -153,21 +153,10 @@ python -m notebook
 
 ### 3.1. Общая идея
 
-Вместо полностью свёрточной QECNN используется облегчённая архитектура на основе SwinIR (Swin Image Restoration), адаптированная для RGB-изображений после сжатия H.265. Она сочетает свёртки, оконное многоголовое самовнимание и остаточные связи. Пространственное разрешение изображения не изменяется; повышения разрешения нет.
+Вместо полностью свёрточной QECNN используется облегчённая архитектура на основе SwinIR - Swin (Shifted Window) Transformer Image Restoration, адаптированная для RGB-изображений после сжатия H.265. Она сочетает свёртки, оконное многоголовое самовнимание и остаточные связи. Пространственное разрешение изображения не изменяется; повышения разрешения нет.
 
-```mermaid
-flowchart TD
-    X[Сжатое RGB-изображение] --> C[Conv 3×3: 3 → 64]
-    C --> G1[Residual Swin Group 1: 4 Swin Blocks]
-    G1 --> G2[Residual Swin Group 2: 4 Swin Blocks]
-    G2 --> N[LayerNorm + Conv 3×3]
-    N --> A[Сложение начальных и глубоких признаков]
-    C --> A
-    A --> O[Conv 3×3: 64 → 3]
-    O --> R[Сложение с исходным изображением]
-    X --> R
-    R --> Y[Восстановленное RGB-изображение]
-```
+![Визуальное представление архитектуры модели](figures/swinir_architecture.png)
+
 
 Основные параметры архитектуры:
 
@@ -473,7 +462,5 @@ $$
 
 ## Литература
 
-1. Berkeley Segmentation Dataset and Benchmark (BSDS500): https://github.com/BIDS/BSDS500.
-2. Yang R. et al. Enhancing Quality for HEVC Compressed Videos. IEEE Transactions on Circuits and Systems for Video Technology, 2019.
-3. Liang J. et al. SwinIR: Image Restoration Using Swin Transformer. ICCV Workshops, 2021. https://arxiv.org/abs/2108.10257. Исходная архитектура: https://github.com/JingyunLiang/SwinIR.
-4. Liu Z. et al. Swin Transformer: Hierarchical Vision Transformer Using Shifted Windows. ICCV, 2021. https://arxiv.org/abs/2103.14030.
+1. Liu Z. et al. Swin Transformer: Hierarchical Vision Transformer Using Shifted Windows. ICCV, 2021. https://arxiv.org/abs/2103.14030.
+2. Liang J. et al. SwinIR: Image Restoration Using Swin Transformer. ICCV Workshops, 2021. https://arxiv.org/abs/2108.10257. Исходная архитектура: https://github.com/JingyunLiang/SwinIR.
